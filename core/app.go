@@ -3,7 +3,7 @@ package core
 import (
 	"embed"
 	"fmt"
-	"github.com/getlantern/systray"
+	"fyne.io/systray"
 	"github.com/vrischmann/userdir"
 	"os"
 	"path/filepath"
