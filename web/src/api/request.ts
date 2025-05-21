@@ -1,37 +1,38 @@
-import axios from 'axios';
-import type {AxiosResponse, InternalAxiosRequestConfig} from 'axios';
+import axios from 'axios'
+import type {AxiosResponse, InternalAxiosRequestConfig} from 'axios'
 
 interface RequestOptions {
-    url: string;
-    method: 'get' | 'post' | 'put' | 'delete'; // 根据需要扩展
-    params?: Record<string, any>;
-    data?: Record<string, any>;
+    url: string
+    method: 'get' | 'post' | 'put' | 'delete'
+    params?: Record<string, any>
+    data?: Record<string, any>
 }
 
 const instance = axios.create({
     baseURL: import.meta.env.VITE_APP_API,
-});
+    timeout: 180000
+})
 
 instance.interceptors.request.use(
     (config: InternalAxiosRequestConfig<any>) => {
-        return config;
+        return config
     },
     (error) => {
-        return Promise.reject(error);
+        return Promise.reject(error)
     }
-);
+)
 
 instance.interceptors.response.use(
     (response: AxiosResponse) => {
-        return response.data;
+        return response.data
     },
     (error) => {
         return Promise.reject(error);
     }
-);
+)
 
 const request = ({url, method, params, data}: RequestOptions): Promise<any> => {
-    return instance({url, method, params, data});
-};
+    return instance({url, method, params, data})
+}
 
-export default request;
+export default request

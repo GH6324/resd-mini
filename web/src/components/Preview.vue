@@ -4,7 +4,7 @@
       :on-update:show="changeShow"
       preset="card"
       class="w-[540px] h-auto"
-      title="预览"
+      :title="t('index.preview')"
       display-directive="show"
       :on-after-enter="onAfterEnter"
       :on-after-leave="onAfterLeave"
@@ -29,8 +29,9 @@ import axios from "axios"
 // @ts-ignore
 import { getDecryptionArray } from '@/assets/js/decrypt.js'
 import type Player from "video.js/dist/types/player"
-import type {appType} from "@/types/app"
+import {useI18n} from 'vue-i18n'
 
+const {t} = useI18n()
 const videoPlayer = ref<HTMLElement | any>(null)
 let player: Player | null = null
 let flvPlayer: flvjs.Player | null = null

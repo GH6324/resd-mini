@@ -1,5 +1,5 @@
 <template>
-  <NConfigProvider class="h-full" :theme="theme" :locale="zhCN">
+  <NConfigProvider class="h-full" :theme="theme" :locale="uiLocale">
     <NaiveProvider>
       <RouterView />
     </NaiveProvider>
@@ -10,14 +10,16 @@
 
 <script setup lang="ts">
 import NaiveProvider from '@/components/NaiveProvider.vue'
-import {darkTheme, lightTheme, zhCN} from 'naive-ui'
+import {darkTheme, lightTheme, zhCN, enUS} from 'naive-ui'
 import {useIndexStore} from "@/stores"
 import {useWsStore} from "@/stores/ws"
-import {computed, onMounted, watch} from "vue"
+import {computed, onMounted} from "vue"
 import type {wsType} from "@/types/ws"
+import {useI18n} from 'vue-i18n'
 
 const store = useIndexStore()
 const wsStore = useWsStore()
+const {locale} = useI18n()
 
 const theme = computed(() => {
   if (store.globalConfig.Theme === "darkTheme") {
@@ -26,6 +28,14 @@ const theme = computed(() => {
   }
   document.documentElement.classList.remove('dark');
   return lightTheme
+})
+
+const uiLocale = computed(() => {
+  locale.value = store.globalConfig.Locale
+  if (store.globalConfig.Locale === "zh") {
+    return zhCN
+  }
+  return enUS
 })
 
 onMounted(async () => {

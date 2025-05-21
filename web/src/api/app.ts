@@ -1,6 +1,19 @@
 import request from '@/api/request'
 
 export default {
+    install() {
+        return request({
+            url: '/api/install',
+            method: 'post'
+        })
+    },
+    setSystemPassword(data: object) {
+        return request({
+            url: 'api/set-system-password',
+            method: 'post',
+            data: data
+        })
+    },
     openSystemProxy() {
         return request({
             url: 'api/proxy-open',
@@ -16,13 +29,13 @@ export default {
     openDirectoryDialog() {
         return request({
             url: 'api/open-directory',
-            method: 'get'
+            method: 'post'
         })
     },
     openFileDialog() {
         return request({
             url: 'api/open-file',
-            method: 'get'
+            method: 'post'
         })
     },
     openFolder(data: object) {
@@ -35,19 +48,19 @@ export default {
     isProxy() {
         return request({
             url: 'api/is-proxy',
-            method: 'get'
+            method: 'post'
         })
     },
     appInfo() {
         return request({
             url: 'api/app-info',
-            method: 'get',
+            method: 'post',
         })
     },
     getConfig() {
         return request({
             url: 'api/get-config',
-            method: 'get',
+            method: 'post',
         })
     },
     setConfig(data: object) {
@@ -89,6 +102,13 @@ export default {
     wxFileDecode(data: object) {
         return request({
             url: 'api/wx-file-decode',
+            method: 'post',
+            data: data
+        })
+    },
+    batchImport(data: object) {
+        return request({
+            url: 'api/batch-import',
             method: 'post',
             data: data
         })

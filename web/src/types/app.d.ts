@@ -4,10 +4,17 @@ export namespace appType {
         Version: string
         Description: string
         Copyright: string
+        Platform: string
+    }
+
+    interface MimeMap {
+        Type: string
+        Suffix: string
     }
 
     interface Config {
         Theme: string
+        Locale: string
         Host: string
         Port: string
         Quality: number
@@ -22,6 +29,7 @@ export namespace appType {
         TaskNumber: number
         UserAgent: string
         UseHeaders: string
+        MimeMap: { [key: string]: MimeMap }
     }
 
     interface MediaInfo {
@@ -38,7 +46,7 @@ export namespace appType {
         DecodeKey: string
         Description: string
         ContentType: string
-        OtherData: {[key: string]: string}
+        OtherData: { [key: string]: string }
     }
 
     interface DownloadProgress {
@@ -46,5 +54,11 @@ export namespace appType {
         SavePath: string
         Status: string
         Message: string
+    }
+
+    interface Res<T = any> {
+        code: number;
+        message: string;
+        data: T;  // T will be the specific type of your data
     }
 }

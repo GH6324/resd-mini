@@ -9,10 +9,12 @@ export const useIndexStore = defineStore("index-store", () => {
         Version: "",
         Description: "",
         Copyright: "",
+        Platform: "",
     })
 
     const globalConfig = ref<appType.Config>({
         Theme: "lightTheme",
+        Locale: "zh",
         Host: "0.0.0.0",
         Port: "8899",
         Quality: 0,
@@ -27,6 +29,7 @@ export const useIndexStore = defineStore("index-store", () => {
         TaskNumber: 8,
         UserAgent: "",
         UseHeaders: "",
+        MimeMap: {}
     })
 
     const tableHeight = ref(800)
@@ -34,26 +37,23 @@ export const useIndexStore = defineStore("index-store", () => {
     const isProxy = ref(false)
 
     const init = async () => {
-        await getAppInfo()
+        await appApi.appInfo().then((res) => {
+            appInfo.value = Object.assign({}, appInfo.value, res.data)
+            isProxy.value = res.data.IsProxy
+        })
         await appApi.getConfig().then((res) => {
             globalConfig.value = Object.assign({}, globalConfig.value, res.data)
         })
         setTimeout(() => {
-            appApi.isProxy().then((res: any) => {
-                isProxy.value = res.data.isProxy
+            appApi.isProxy().then((res: appType.Res) => {
+                isProxy.value = res.data.value
             })
         }, 150)
         window.addEventListener("resize", handleResize);
         handleResize()
     }
 
-    const getAppInfo = async () => {
-        await appApi.appInfo().then((res) => {
-            appInfo.value = Object.assign({}, appInfo.value, res.data)
-        })
-    }
-
-    const setConfig = (formValue: appType.Config) => {
+    const setConfig = (formValue: Object) => {
         globalConfig.value = Object.assign({}, globalConfig.value, formValue)
         appApi.setConfig(globalConfig.value)
     }
@@ -63,8 +63,24 @@ export const useIndexStore = defineStore("index-store", () => {
     }
 
     const updateProxyStatus = (res: any) => {
-        isProxy.value = res.isProxy
+        isProxy.value = res.value
     }
 
-    return {appInfo, globalConfig, tableHeight, isProxy, init, getAppInfo, setConfig, updateProxyStatus}
+    const openProxy = async () => {
+        return appApi.openSystemProxy().then(handleProxy)
+    }
+
+    const unsetProxy = async () => {
+        return appApi.unsetSystemProxy().then(handleProxy)
+    }
+
+    const handleProxy = (res: appType.Res) => {
+        isProxy.value = res.data.value
+        if (res.code === 0) {
+            window?.$message?.error(res.message)
+        }
+        return res
+    }
+
+    return {appInfo, globalConfig, tableHeight, isProxy, init, setConfig, openProxy, unsetProxy, updateProxyStatus}
 })

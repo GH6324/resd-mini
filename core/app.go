@@ -7,8 +7,9 @@ import (
 	"github.com/vrischmann/userdir"
 	"os"
 	"path/filepath"
+	"resd-mini/core/shared"
 	sysRuntime "runtime"
-	"strings"
+	"strconv"
 	"time"
 )
 
@@ -18,6 +19,7 @@ type App struct {
 	Version     string            `json:"Version"`
 	Description string            `json:"Description"`
 	Copyright   string            `json:"Copyright"`
+	Platform    string            `json:"Platform"`
 	UserDir     string            `json:"-"`
 	LockFile    string            `json:"-"`
 	PublicCrt   []byte            `json:"-"`
@@ -43,11 +45,11 @@ func GetApp(assets embed.FS) *App {
 		appOnce = &App{
 			assets:      assets,
 			AppName:     "resd-mini",
-			Version:     "1.0.3",
+			Version:     "1.0.4",
 			Description: "resd-mini是一款集网络资源嗅探 + 高速下载功能于一体的软件，高颜值、高性能和多样化，提供个人用户下载自己上传到各大平台的网络资源功能！",
-			Copyright:   "Copyright © 2025",
-			PublicCrt: []byte(`
------BEGIN CERTIFICATE-----
+			Copyright:   "Copyright © 2023~" + strconv.Itoa(time.Now().Year()),
+			Platform:    sysRuntime.GOOS,
+			PublicCrt: []byte(`-----BEGIN CERTIFICATE-----
 MIIDwzCCAqugAwIBAgIUFAnC6268dp/z1DR9E1UepiWgWzkwDQYJKoZIhvcNAQEL
 BQAwcDELMAkGA1UEBhMCQ04xEjAQBgNVBAgMCUNob25ncWluZzESMBAGA1UEBwwJ
 Q2hvbmdxaW5nMQ4wDAYDVQQKDAVnb3dhczEWMBQGA1UECwwNSVQgRGVwYXJ0bWVu
@@ -71,8 +73,7 @@ e3oowvgwikqm6XR6BEcRpPkztqcKST7jPFGHiXWsAqiibc+/plMW9qebhfMXEGhQ
 D8HixYbEDg==
 -----END CERTIFICATE-----
 `),
-			PrivateKey: []byte(`
------BEGIN PRIVATE KEY-----
+			PrivateKey: []byte(`-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDcDt23t6ioBoHG
 /Y2mOjxntWQa9dP3eNl+mAC6425DlEtyc6czNAIKuuM9wt+wAwDQAgrd5RaxdcpJ
 H1JlMkEtBFkIkdn0Ag98D7nwlVA9ON3xQi5Bkl+sN/oWOE8lOwvNyNNT6ZPu3qUS
@@ -103,7 +104,10 @@ ILKEQKmPPzKs7kp/7Nz+2cT3
 `),
 		}
 		appOnce.UserDir = filepath.Join(userdir.GetConfigHome(), appOnce.AppName)
-		fmt.Println("UserDir：", appOnce.UserDir)
+		err := os.MkdirAll(appOnce.UserDir, 0750)
+		if err != nil {
+			fmt.Println("Mkdir UserDir err: ", err.Error())
+		}
 		appOnce.LockFile = filepath.Join(appOnce.UserDir, "install.lock")
 		initLogger()
 		initConfig()
@@ -129,16 +133,13 @@ func (a *App) OnReady() {
 	systray.SetTitle("")
 	systray.SetTooltip(a.Description)
 
-	a.MenuProxy = systray.AddMenuItem("启动代理", "设置系统代理")
-	a.MenuOpen = systray.AddMenuItem("打开面板", "打开管理面板")
-	a.MenuQuit = systray.AddMenuItem("退出", "退出应用")
+	a.MenuProxy = systray.AddMenuItem("Open proxy", "Set up system proxy")
+	a.MenuOpen = systray.AddMenuItem("Open panel", "Open the management panel")
+	a.MenuQuit = systray.AddMenuItem("Exit", "Exit the application")
 
 	go httpServerOnce.run()
 
 	time.AfterFunc(200*time.Millisecond, func() {
-		if globalConfig.AutoProxy {
-			appOnce.OpenSystemProxy()
-		}
 		_ = OpenBrowser("http://127.0.0.1:" + globalConfig.Port)
 	})
 
@@ -154,24 +155,13 @@ func (a *App) OnReady() {
 					a.OpenSystemProxy()
 				}
 				httpServerOnce.send("updateProxyStatus", map[string]interface{}{
-					"isProxy": appOnce.IsProxy,
+					"value": appOnce.IsProxy,
 				})
 			case <-a.MenuQuit.ClickedCh:
 				systray.Quit()
 				os.Exit(0)
 			}
 		}
-	}()
-
-	go func() {
-		if a.isInstall() {
-			return
-		}
-		err := os.MkdirAll(a.UserDir, os.ModePerm)
-		if err != nil {
-			return
-		}
-		a.installCert()
 	}()
 }
 
@@ -183,73 +173,64 @@ func (a *App) getIcon() []byte {
 	return file
 }
 
-func (a *App) installCert() {
-	if res, err := systemOnce.installCert(); err != nil {
-		DialogErr("证书安装失败，err:" + err.Error() + ", " + res)
-		if sysRuntime.GOOS == "darwin" {
-			fmt.Println(`证书安装失败，请执行如下命令，安装证书文件:`)
-			fmt.Println(`echo "输入本地登录密码" && sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "`)
-		} else if sysRuntime.GOOS == "windows" && strings.Contains(err.Error(), "Access is denied.") {
-			fmt.Println(`证书安装失败，首次启用本软件，请使用鼠标右键选择以管理员身份运行`)
-		} else if sysRuntime.GOOS == "linux" && strings.Contains(err.Error(), "Access is denied.") {
-			fmt.Println("证书路径: " + systemOnce.CertFile + ", 请手动安装，安装完成后请执行: touch" + a.LockFile)
-		} else {
-			fmt.Println(`证书安装失败，` + sysRuntime.GOOS)
-		}
+func (a *App) installCert() (string, error) {
+	out, err := systemOnce.installCert()
+	if err != nil {
+		globalLogger.Esg(err, out)
+		return out, err
 	} else {
 		if err := a.lock(); err != nil {
-			globalLogger.err(err)
+			globalLogger.Err(err)
 		}
 	}
+	return out, nil
 }
 
-func (a *App) OpenSystemProxy() bool {
+func (a *App) OpenSystemProxy() error {
 	defer func() {
 		if a.IsProxy {
-			a.MenuProxy.SetTitle("关闭代理")
+			a.MenuProxy.SetTitle("Close proxy")
 		} else {
-			a.MenuProxy.SetTitle("开启代理")
+			a.MenuProxy.SetTitle("Open proxy")
 		}
 	}()
 	if a.IsProxy {
-		return true
+		return nil
 	}
 	err := systemOnce.setProxy()
 	if err == nil {
 		a.IsProxy = true
-		return true
+		return nil
 	}
-	DialogErr("设置失败" + err.Error())
-	return false
+	return err
 }
 
-func (a *App) UnsetSystemProxy() bool {
+func (a *App) UnsetSystemProxy() error {
 	defer func() {
 		if a.IsProxy {
-			a.MenuProxy.SetTitle("关闭代理")
+			a.MenuProxy.SetTitle("Close proxy")
 		} else {
-			a.MenuProxy.SetTitle("开启代理")
+			a.MenuProxy.SetTitle("Open proxy")
 		}
 	}()
 
 	if !a.IsProxy {
-		return true
+		return nil
 	}
 	err := systemOnce.unsetProxy()
 	if err == nil {
 		a.IsProxy = false
-		return true
+		return nil
 	}
-	DialogErr("设置失败")
-	return false
+	return err
 }
 
 func (a *App) isInstall() bool {
-	return FileExist(a.LockFile)
+	return shared.FileExist(a.LockFile)
 }
 
 func (a *App) lock() error {
-	err := os.WriteFile(a.LockFile, []byte("success"), 0777)
+	err := os.WriteFile(a.LockFile, []byte("success"), 0644)
 	if err != nil {
 		return err
 	}
