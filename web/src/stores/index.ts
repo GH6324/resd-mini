@@ -27,12 +27,13 @@ export const useIndexStore = defineStore("index-store", () => {
         AutoProxy: false,
         WxAction: false,
         TaskNumber: 8,
+        DownNumber: 3,
         UserAgent: "",
         UseHeaders: "",
-        MimeMap: {}
+        InsertTail: true,
+        MimeMap: {},
+        Rule: "*"
     })
-
-    const tableHeight = ref(800)
 
     const isProxy = ref(false)
 
@@ -49,17 +50,11 @@ export const useIndexStore = defineStore("index-store", () => {
                 isProxy.value = res.data.value
             })
         }, 150)
-        window.addEventListener("resize", handleResize);
-        handleResize()
     }
 
     const setConfig = (formValue: Object) => {
         globalConfig.value = Object.assign({}, globalConfig.value, formValue)
         appApi.setConfig(globalConfig.value)
-    }
-
-    const handleResize = () => {
-        tableHeight.value = document.getElementById("content")?.offsetHeight ?? 895
     }
 
     const updateProxyStatus = (res: any) => {
@@ -82,5 +77,5 @@ export const useIndexStore = defineStore("index-store", () => {
         return res
     }
 
-    return {appInfo, globalConfig, tableHeight, isProxy, init, setConfig, openProxy, unsetProxy, updateProxyStatus}
+    return {appInfo, globalConfig, isProxy, init, setConfig, openProxy, unsetProxy, updateProxyStatus}
 })

@@ -1,7 +1,12 @@
 <template>
   <div class="flex pb-2 flex-col h-full min-w-[80px] border-r border-slate-100 dark:border-slate-800">
     <div class="w-full flex flex-row items-center justify-center pt-5 ml-[-5px]">
-      <img class="w-12 h-12 cursor-pointer" src="@/assets/image/logo.png"  alt="resd-mini logo"/>
+      <div class="relative flex items-center justify-center cursor-pointer" @click="handleFooterUpdate('github')">
+        <img class="w-12 h-12 rounded-full transition-transform duration-300 hover:scale-105 dark" src="@/assets/image/logo.png"  alt="resd-mini logo"/>
+        <span class="absolute right-[-25px] top-0 font-semibold rounded-full bg-red-500 text-white dark:bg-red-600 dark:text-gray-100 text-[10px] px-1.5 py-0.5 animate-pulse" v-if="showUpdate">
+            New
+        </span>
+      </div>
     </div>
     <main class="flex-1 flex-grow-1 mb-5 overflow-auto flex flex-col pt-1 items-center h-full" v-if="is">
       <NScrollbar :size="1">
@@ -63,6 +68,8 @@ import {
 import {useIndexStore} from "@/stores"
 import Footer from "@/components/Footer.vue"
 import {useI18n} from "vue-i18n"
+import request from "@/api/request"
+import {compareVersions} from "@/func"
 
 const {t} = useI18n()
 const route = useRoute()
@@ -74,6 +81,7 @@ const showAppInfo = ref(false)
 const menuValue = ref(route.fullPath.substring(1))
 const store = useIndexStore()
 const is = ref(false)
+const showUpdate = ref(false)
 
 const globalConfig = computed(() => {
   return store.globalConfig
@@ -93,6 +101,13 @@ onMounted(()=>{
     collapsed.value = JSON.parse(collapsedCache).collapsed
   }
   is.value = true
+
+  request({
+    url: '/api/preview?url=' + encodeURIComponent('https://res.putyy.com/version-mini.json?v=' + Date.now()),
+    method: 'get',
+  }).then((res)=>{
+    showUpdate.value = compareVersions(res.version, store.appInfo.Version) === 1
+  })
 })
 
 const renderIcon = (icon: any) => {

@@ -1,32 +1,114 @@
 <template>
-  <div class="flex flex-col p-5 overflow-y-auto [&::-webkit-scrollbar]:hidden">
-    <div class="pb-2 z-40">
+  <div class="h-full flex flex-col px-5 pt-5 overflow-y-auto [&::-webkit-scrollbar]:hidden" id="index-content">
+    <div class="pb-2 z-40" id="header">
       <NSpace>
         <NButton v-if="isProxy" secondary type="primary" @click.stop="close">
-          {{ t("index.close_grab") }}
+          <span class="inline-block w-1.5 h-1.5 bg-red-600 rounded-full mr-1 animate-pulse"></span>
+          {{ t("index.close_grab") }}{{ data.length > 0 ? `&nbsp;${t('index.total_resources', {count: data.length})}` : '' }}
         </NButton>
         <NButton v-else tertiary type="tertiary" @click.stop="open">
-          {{ t("index.open_grab") }}
+          {{ t("index.open_grab") }}{{ data.length > 0 ? `&nbsp;${t('index.total_resources', {count: data.length})}` : '' }}
         </NButton>
-        <NButton tertiary type="error" @click.stop="clear">
-          {{ t("index.clear_list") }}
-        </NButton>
-        <NSelect style="min-width: 100px;" :placeholder="t('index.grab_type')" v-model:value="resourcesType" multiple clearable :max-tag-count="3" :options="classify"></NSelect>
-        <NButton tertiary type="info" @click.stop="batchDown" style="--wails-draggable:no-drag">
-          {{ t("index.batch_download") }}
-        </NButton>
-        <NButton tertiary type="info" @click.stop="batchImport" style="--wails-draggable:no-drag">
-          {{ t("index.batch_export") }}
-        </NButton>
-        <NButton tertiary type="info" @click.stop="showImport=true" style="--wails-draggable:no-drag">
-          {{ t("index.batch_import") }}
-        </NButton>
+        <NSelect style="min-width: 100px;" :placeholder="t('index.grab_type')" v-model:value="resourcesType" multiple clearable
+                 :max-tag-count="3" :options="classify"></NSelect>
+        <NButtonGroup>
+
+          <NButton v-if="rememberChoice" tertiary type="error" @click.stop="clear">
+            <template #icon>
+              <n-icon>
+                <TrashOutline/>
+              </n-icon>
+            </template>
+            {{ t("index.clear_list") }}
+          </NButton>
+          <n-popconfirm
+              v-else
+              @positive-click="()=>{rememberChoice=rememberChoiceTmp;clear()}"
+              :show-icon="false"
+          >
+            <template #trigger>
+              <NButton tertiary type="error">
+                <template #icon>
+                  <n-icon>
+                    <TrashOutline/>
+                  </n-icon>
+                </template>
+                {{ t("index.clear_list") }}
+              </NButton>
+            </template>
+            <div>
+              <div class="flex flex-row items-center text-red-700 my-2 text-base">
+                <n-icon>
+                  <TrashOutline/>
+                </n-icon>
+                <p class="ml-1">{{ t("index.clear_list_tip") }}</p>
+              </div>
+              <NCheckbox
+                  v-model:checked="rememberChoiceTmp"
+              >
+                <span class="text-gray-400">{{ t('index.remember_clear_choice') }}</span>
+              </NCheckbox>
+            </div>
+          </n-popconfirm>
+
+          <NButton tertiary type="primary" @click.stop="batchDown">
+            <template #icon>
+              <n-icon>
+                <DownloadOutline/>
+              </n-icon>
+            </template>
+            {{ t('index.batch_download') }}
+          </NButton>
+          <NButton tertiary type="info">
+            <NPopover placement="bottom" trigger="hover">
+              <template #trigger>
+                <NIcon size="18" class="">
+                  <Apps/>
+                </NIcon>
+              </template>
+              <div class="flex flex-col">
+                <NButton tertiary type="error" @click.stop="batchCancel" class="my-1">
+                  <template #icon>
+                    <n-icon>
+                      <CloseOutline/>
+                    </n-icon>
+                  </template>
+                  {{ t('index.cancel_down') }}
+                </NButton>
+                <NButton tertiary type="warning" @click.stop="batchExport()" class="my-1">
+                  <template #icon>
+                    <n-icon>
+                      <ArrowRedoCircleOutline/>
+                    </n-icon>
+                  </template>
+                  {{ t('index.batch_export') }}
+                </NButton>
+                <NButton tertiary type="info" @click.stop="showImport=true" class="my-1">
+                  <template #icon>
+                    <n-icon>
+                      <ServerOutline/>
+                    </n-icon>
+                  </template>
+                  {{ t('index.batch_import') }}
+                </NButton>
+                <NButton tertiary type="primary" @click.stop="batchExport('url')" class="my-1">
+                  <template #icon>
+                    <n-icon>
+                      <ArrowRedoCircleOutline/>
+                    </n-icon>
+                  </template>
+                  {{ t('index.export_url') }}
+                </NButton>
+              </div>
+            </NPopover>
+          </NButton>
+        </NButtonGroup>
       </NSpace>
     </div>
     <div class="flex-1">
       <NDataTable
           :columns="columns"
-          :data="data"
+          :data="filteredData"
           :bordered="false"
           :max-height="tableHeight"
           :row-key="rowKey"
@@ -35,7 +117,14 @@
           :height-for-row="()=> 48"
           :checked-row-keys="checkedRowKeysValue"
           @update:checked-row-keys="handleCheck"
+          @update:filters="updateFilters"
       />
+    </div>
+    <div class="flex justify-center items-center text-blue-400" id="bottom">
+      <span class="cursor-pointer px-2 py-1" @click="browserOpenURL('/api/cert')">{{ t('footer.cert_download') }}</span>
+      <span class="cursor-pointer px-2 py-1" @click="browserOpenURL('https://github.com/putyy/resd-mini')">{{ t('footer.source_code') }}</span>
+      <span class="cursor-pointer px-2 py-1" @click="browserOpenURL('https://github.com/putyy/resd-mini/issues')">{{ t('footer.help') }}</span>
+      <span class="cursor-pointer px-2 py-1" @click="browserOpenURL('https://github.com/putyy/resd-mini/releases')">{{ t('footer.update_log') }}</span>
     </div>
     <Preview v-model:showModal="showPreviewRow" :previewRow="previewRow"/>
     <ShowLoading :loadingText="loadingText" :isLoading="loading"/>
@@ -45,22 +134,32 @@
 </template>
 
 <script lang="ts" setup>
-import {NButton, NImage, NTooltip} from "naive-ui"
+import {NButton, NIcon, NImage, NInput, NSpace, NTooltip, NPopover, NGradientText} from "naive-ui"
 import {computed, h, onMounted, ref, watch} from "vue"
 import type {appType} from "@/types/app"
-
-import type {DataTableRowKey, ImageRenderToolbarProps} from "naive-ui"
+import type {DataTableRowKey, ImageRenderToolbarProps, DataTableFilterState, DataTableBaseColumn} from "naive-ui"
 import Preview from "@/components/Preview.vue"
 import ShowLoading from "@/components/ShowLoading.vue"
 // @ts-ignore
 import {getDecryptionArray} from '@/assets/js/decrypt.js'
 import {useIndexStore} from "@/stores"
 import appApi from "@/api/app"
-import ResAction from "@/components/ResAction.vue"
+import Action from "@/components/Action.vue"
+import ActionDesc from "@/components/ActionDesc.vue"
 import ImportJson from "@/components/ImportJson.vue"
 import {useWsStore} from "@/stores/ws.ts"
 import Password from "@/components/Password.vue"
+import ShowOrEdit from "@/components/ShowOrEdit.vue"
 import {useI18n} from 'vue-i18n'
+import {
+  DownloadOutline,
+  ArrowRedoCircleOutline,
+  ServerOutline,
+  SearchOutline,
+  Apps,
+  TrashOutline, CloseOutline
+} from "@vicons/ionicons5"
+import {browserOpenURL, formatSize} from "@/func"
 
 const {t} = useI18n()
 const wsStore = useWsStore()
@@ -68,10 +167,27 @@ const isProxy = computed(() => {
   return store.isProxy
 })
 const data = ref<any[]>([])
-const store = useIndexStore()
-const tableHeight = computed(() => {
-  return store.globalConfig.Locale === "zh" ? store.tableHeight - 132 : store.tableHeight - 155
+const filterClassify = ref<string[]>([])
+const filteredData = computed(() => {
+  let result = data.value
+
+  if (filterClassify.value.length > 0) {
+    result = result.filter(item => filterClassify.value.includes(item.Classify))
+  }
+
+  if (descriptionSearchValue.value) {
+    result = result.filter(item => item.Description?.toLowerCase().includes(descriptionSearchValue.value.toLowerCase()))
+  }
+
+  if (urlSearchValue.value) {
+    result = result.filter(item => item.Url?.toLowerCase().includes(urlSearchValue.value.toLowerCase()))
+  }
+
+  return result
 })
+
+const store = useIndexStore()
+const tableHeight = ref(800)
 const resourcesType = ref<string[]>(["all"])
 
 const classifyAlias: { [key: string]: any } = {
@@ -81,19 +197,25 @@ const classifyAlias: { [key: string]: any } = {
   m3u8: computed(() => t("index.m3u8")),
   live: computed(() => t("index.live")),
   xls: computed(() => t("index.xls")),
-  doc: computed(() => t("index.pdf")),
+  doc: computed(() => t("index.doc")),
   pdf: computed(() => t("index.pdf")),
+  stream: computed(() => t("index.stream")),
   font: computed(() => t("index.font"))
 }
 
 const dwStatus = computed<any>(() => {
   return {
-    ready: t("common.ready"),
-    running: t("common.running"),
-    error: t("common.error"),
-    done: t("common.done"),
-    handle: t("common.handle")
+    ready: t("index.ready"),
+    pending: t("index.pending"),
+    running: t("index.running"),
+    error: t("index.error"),
+    done: t("index.done"),
+    handle: t("index.handle")
   }
+})
+
+const maxConcurrentDownloads = computed(() => {
+  return store.globalConfig.DownNumber
 })
 
 const classify = ref([
@@ -103,43 +225,88 @@ const classify = ref([
   },
 ])
 
+const descriptionSearchValue = ref("")
+const urlSearchValue = ref("")
+const rememberChoice = ref(false)
+const rememberChoiceTmp = ref(false)
+
 const columns = ref<any[]>([
   {
     type: "selection",
   },
   {
-    title: computed(() => t("index.domain")),
+    title: () => {
+      if (checkedRowKeysValue.value.length > 0) {
+        return h(NGradientText, {type: "success"}, t("index.choice") + `(${checkedRowKeysValue.value.length})`)
+      }
+      return h('div', {class: 'flex items-center'}, [
+        t('index.domain'),
+        h(NPopover, {
+          style: "--wails-draggable:no-drag",
+          trigger: 'click',
+          placement: 'bottom',
+          showArrow: true,
+        }, {
+          trigger: () => h(NIcon, {
+            size: "18",
+            class: `ml-1 cursor-pointer ${urlSearchValue.value ? "text-green-600": "text-gray-500"}`,
+            onClick: (e: MouseEvent) => e.stopPropagation()
+          }, h(SearchOutline)),
+          default: () => h('div', {class: 'p-2 w-64'}, [
+            h(NInput, {
+              value: urlSearchValue.value,
+              'onUpdate:value': (val: string) => urlSearchValue.value = val,
+              placeholder: t('index.search_description'),
+              clearable: true
+            }, {
+              prefix: () => h(NIcon, {component: SearchOutline})
+            })
+          ])
+        })
+      ])
+    },
     key: "Domain",
+    width: 90,
+    render: (row: appType.MediaInfo) => {
+      return h(NTooltip, {
+        trigger: 'hover',
+        placement: 'top'
+      }, {
+        trigger: () => h('span', {
+          class: 'cursor-default'
+        }, row.Domain),
+        default: () => row.Url
+      })
+    }
   },
   {
     title: computed(() => t("index.type")),
     key: "Classify",
+    width: 80,
     filterOptions: computed(() => Array.from(classify.value).slice(1)),
     filterMultiple: true,
     filter: (value: string, row: appType.MediaInfo) => {
       return !!~row.Classify.indexOf(String(value))
     },
     render: (row: appType.MediaInfo) => {
-      for (const key in classify.value) {
-        if (classify.value[key].value === row.Classify) {
-          return classify.value[key].label;
-        }
-      }
-      return row.Classify;
+      const item = classify.value.find(item => item.value === row.Classify)
+      return item ? item.label : row.Classify
     }
   },
   {
     title: computed(() => t("index.preview")),
     key: "Url",
-    width: 120,
+    width: 80,
     render: (row: appType.MediaInfo) => {
       if (row.Classify === "image") {
-        return h(NImage, {
-          maxWidth: "80px",
+        return h("div", {
+          style: "width: 100%;max-height:80px;overflow:hidden;"
+        }, h(NImage, {
+          objectFit: "contain",
           lazy: true,
           "render-toolbar": renderToolbar,
           src: row.Url
-        })
+        }))
       }
       return [
         h(
@@ -174,30 +341,85 @@ const columns = ref<any[]>([
   {
     title: computed(() => t("index.status")),
     key: "Status",
-    render: (row: appType.MediaInfo) => {
-      return dwStatus[row.Status as keyof typeof dwStatus]
+    width: 80,
+    render: (row: appType.MediaInfo, index: number) => {
+      let status = "info"
+      if (row.Status === "done" || row.Status === "running") {
+        status = "success"
+      } else if (row.Status === "pending") {
+        status = "warning"
+      }
+
+      return h(
+          NButton,
+          {
+            tertiary: true,
+            type: status as any,
+            size: "small",
+            style: {
+              margin: "2px"
+            },
+            onClick: () => {
+              if (row.SavePath && row.Status === "done") {
+                appApi.openFolder({filePath: row.SavePath})
+              } else if (row.Status === "ready") {
+                download(row, index)
+              }
+            }
+          },
+          {
+            default: () => {
+              return row.Status === "running" ? row.SavePath : dwStatus.value[row.Status as keyof typeof dwStatus]
+            }
+          }
+      )
     }
   },
   {
-    title: computed(() => t("index.description")),
+    title: () => h('div', {class: 'flex items-center'}, [
+      t('index.description'),
+      h(NPopover, {
+        trigger: 'click',
+        placement: 'bottom',
+        showArrow: true,
+      }, {
+        trigger: () => h(NIcon, {
+          size: "18",
+          class: `ml-1 cursor-pointer ${descriptionSearchValue.value ? "text-green-600": "text-gray-500"}`,
+          onClick: (e: MouseEvent) => e.stopPropagation()
+        }, h(SearchOutline)),
+        default: () => h('div', {class: 'p-2 w-64'}, [
+          h(NInput, {
+            value: descriptionSearchValue.value,
+            'onUpdate:value': (val: string) => descriptionSearchValue.value = val,
+            placeholder: t('index.search_description'),
+            clearable: true
+          }, {
+            prefix: () => h(NIcon, {component: SearchOutline})
+          })
+        ])
+      })
+    ]),
     key: "Description",
     width: 150,
     render: (row: appType.MediaInfo, index: number) => {
-      return h(NTooltip, {trigger: 'hover', placement: 'top'}, {
-        trigger: () => h("div", {}, row.Description.length > 16 ? row.Description.substring(0, 16) + "..." : row.Description),
-        default: () => h("div", {
-          style: {
-            "max-width": " 400px",
-            "white-space": "normal",
-            "word-wrap": "break-word"
-          }
-        }, row.Description)
-      });
+      return h(ShowOrEdit, {
+        value: row.Description,
+        onUpdateValue(v: string) {
+          data.value[index].Description = v
+          cacheData()
+        }
+      })
     }
   },
   {
     title: computed(() => t("index.resource_size")),
-    key: "Size"
+    key: "Size",
+    width: 120,
+    sorter: (row1: appType.MediaInfo, row2: appType.MediaInfo) => row1.Size - row2.Size,
+    render(row: appType.MediaInfo, index: number) {
+      return formatSize(row.Size)
+    }
   },
   {
     title: computed(() => t("index.save_path")),
@@ -206,6 +428,7 @@ const columns = ref<any[]>([
       return h("a",
           {
             href: "javascript:;",
+            class: "ellipsis-2",
             style: {
               color: "#5a95d0"
             },
@@ -215,18 +438,22 @@ const columns = ref<any[]>([
               }
             }
           },
-          row.SavePath
+          row.Status === "running" ? "" : row.SavePath
       )
     }
   },
   {
-    title: computed(() => t("index.operation")),
     key: "actions",
+    width: 130,
     render(row: appType.MediaInfo, index: number) {
-      return h(ResAction, {key: index, row: row, index: index, onAction: dataAction})
+      return h(Action, {key: index, row: row, index: index, onAction: dataAction})
+    },
+    title() {
+      return h(ActionDesc)
     }
   }
 ])
+
 const checkedRowKeysValue = ref<DataTableRowKey[]>([])
 const showPreviewRow = ref(false)
 const previewRow = ref<appType.MediaInfo>()
@@ -234,16 +461,20 @@ const loading = ref(false)
 const loadingText = ref("")
 const showImport = ref(false)
 const showPassword = ref(false)
+const downloadQueue = ref<appType.MediaInfo[]>([])
+let activeDownloads = 0
 let isOpenProxy = false
-let downIndex = 0
 
 onMounted(() => {
   try {
+    window.addEventListener("resize", () => {
+      resetTableHeight()
+    })
     loading.value = true
     handleInstall().then((is: boolean) => {
       loading.value = false
     })
-  }catch (e) {
+  } catch (e) {
     window.$message?.error(JSON.stringify(e), {duration: 5000})
   }
 
@@ -261,11 +492,30 @@ onMounted(() => {
     data.value = JSON.parse(cache)
   }
 
+  const choiceCache = localStorage.getItem("remember-clear-choice")
+  if (choiceCache === "1") {
+    rememberChoice.value = true
+  }
+
+  watch(rememberChoice, (n, o) => {
+    if (rememberChoice.value) {
+      localStorage.setItem("remember-clear-choice", "1")
+    } else {
+      localStorage.removeItem("remember-clear-choice")
+    }
+  })
+
+  resetTableHeight()
+
   wsStore.bindMessageHandle({
     type: "newResources",
     event: (res: appType.MediaInfo) => {
-      data.value.push(res)
-      localStorage.setItem("resources-data", JSON.stringify(data.value))
+      if (store.globalConfig.InsertTail) {
+        data.value.push(res)
+      } else {
+        data.value.unshift(res)
+      }
+      cacheData()
     }
   })
 
@@ -274,33 +524,32 @@ onMounted(() => {
     event: (res: { Id: string, SavePath: string, Status: string, Message: string }) => {
       switch (res.Status) {
         case "running":
-          loading.value = true
-          loadingText.value = res.Message
+          updateItem(res.Id, item => {
+            item.SavePath = res.Message
+            item.Status = 'running'
+          })
           break
         case "done":
-          setTimeout(()=>{
-            loading.value = false
-          }, 100)
-          if (data.value[downIndex]?.Id === res.Id) {
-            data.value[downIndex].SavePath = res.SavePath
-            data.value[downIndex].Status = "done"
-          } else {
-            for (const i in data.value) {
-              if (data.value[i].Id === res.Id) {
-                data.value[i].SavePath = res.SavePath
-                data.value[i].Status = "done"
-                break
-              }
-            }
+          updateItem(res.Id, item => {
+            item.SavePath = res.SavePath
+            item.Status = 'done'
+          })
+          if (activeDownloads > 0) {
+            activeDownloads--
           }
-          localStorage.setItem("resources-data", JSON.stringify(data.value))
-          window?.$message?.success(t("index.download_success"))
+          cacheData()
+          checkQueue()
           break
         case "error":
-          setTimeout(()=>{
-            loading.value = false
-          }, 100)
-          window?.$message?.error(res.Message)
+          updateItem(res.Id, item => {
+            item.SavePath = res.Message
+            item.Status = 'error'
+          })
+          if (activeDownloads > 0) {
+            activeDownloads--
+          }
+          cacheData()
+          checkQueue()
           break
       }
     }
@@ -318,6 +567,29 @@ watch(resourcesType, (n, o) => {
   appApi.setType(resourcesType.value)
 })
 
+const updateItem = (id: string, updater: (item: any) => void) => {
+  const item = data.value.find(i => i.Id === id)
+  if (item) updater(item)
+}
+
+function cacheData() {
+  localStorage.setItem("resources-data", JSON.stringify(data.value))
+}
+
+const resetTableHeight = () => {
+  try {
+    const headerHeight = document.getElementById("header")?.offsetHeight || 0
+    const bottomHeight = document.getElementById("bottom")?.offsetHeight || 0
+    // @ts-ignore
+    const theadHeight = document.getElementsByClassName("n-data-table-thead")[0]?.offsetHeight || 0
+    // const height = document.documentElement.clientHeight || window.innerHeight
+    const height = document.getElementById("index-content")?.offsetHeight || 0
+    tableHeight.value = height - headerHeight - bottomHeight - theadHeight - 20
+  } catch (e) {
+    console.log(e)
+  }
+}
+
 const buildClassify = () => {
   const mimeMap = store.globalConfig.MimeMap ?? {}
   const seen = new Set()
@@ -325,9 +597,9 @@ const buildClassify = () => {
     {value: "all", label: computed(() => t("index.all"))},
     ...Object.values(mimeMap)
         .filter(({Type}) => {
-          if (seen.has(Type)) return false;
-          seen.add(Type);
-          return true;
+          if (seen.has(Type)) return false
+          seen.add(Type)
+          return true
         })
         .map(({Type}) => ({
           value: Type,
@@ -339,8 +611,37 @@ const buildClassify = () => {
 const dataAction = (row: appType.MediaInfo, index: number, type: string) => {
   switch (type) {
     case "down":
-      download(row, index);
-      break;
+      download(row, index)
+      break
+    case "cancel":
+      if (row.Status === "pending") {
+        const queueIndex = downloadQueue.value.findIndex(item => item.Id === row.Id)
+        if (queueIndex !== -1) {
+          downloadQueue.value.splice(queueIndex, 1)
+        }
+        updateItem(row.Id, item => {
+          item.Status = 'ready'
+          item.SavePath = ''
+        })
+        cacheData()
+      } else if (row.Status === "running") {
+        appApi.cancel({id: row.Id}).then((res) => {
+          updateItem(row.Id, item => {
+            item.Status = 'ready'
+            item.SavePath = ''
+          })
+          if (activeDownloads > 0) {
+            activeDownloads--
+          }
+          cacheData()
+          checkQueue()
+          if (res.code === 0) {
+            window?.$message?.error(res.message)
+            return
+          }
+        })
+      }
+      break
     case "copy":
       navigator.clipboard.writeText(row.Url)
       window?.$message?.success(t("common.copy_success"))
@@ -350,17 +651,19 @@ const dataAction = (row: appType.MediaInfo, index: number, type: string) => {
       window?.$message?.success(t("common.copy_success"))
       break
     case "open":
-      window.open(row.Url, "_blank")
-      break;
+      browserOpenURL(row.Url)
+      break
     case "decode":
       decodeWxFile(row, index)
-      break;
+      break
     case "delete":
-      appApi.delete({sign: row.UrlSign}).then(() => {
-        let arr = data.value
-        arr.splice(index, 1);
-        data.value = arr
-        localStorage.setItem("resources-data", JSON.stringify(data.value))
+      if (row.Status === "pending" || row.Status === "running") {
+        window?.$message?.error(t("index.delete_tip"))
+        return
+      }
+      appApi.delete({sign: [row.UrlSign]}).then(() => {
+        data.value.splice(index, 1)
+        cacheData()
       })
       break
   }
@@ -385,38 +688,92 @@ const handleCheck = (rowKeys: DataTableRowKey[]) => {
   checkedRowKeysValue.value = rowKeys
 }
 
-const batchDown = async () => {
-  if (checkedRowKeysValue.value.length <= 0) {
-    return
-  }
-  if (!store.globalConfig.SaveDirectory) {
-    window?.$message?.error(t("index.save_path_empty"))
-    return
-  }
-  for (let i = 0; i < data.value.length; i++) {
-    if (checkedRowKeysValue.value.includes(data.value[i].Id) && data.value[i].Classify != "live" && data.value[i].Classify != "m3u8") {
-      download(data.value[i], i)
-      await checkVariable()
-    }
-  }
+const updateFilters = (filters: DataTableFilterState, initiatorColumn: DataTableBaseColumn) => {
+  filterClassify.value = filters.Classify as string[]
 }
 
-const batchImport = () => {
+const batchDown = async () => {
   if (checkedRowKeysValue.value.length <= 0) {
     window?.$message?.error(t("index.use_data"))
     return
   }
+
   if (!store.globalConfig.SaveDirectory) {
     window?.$message?.error(t("index.save_path_empty"))
     return
   }
+
+  data.value.forEach((item, index) => {
+    if (checkedRowKeysValue.value.includes(item.Id) && item.Classify !== 'live' && item.Classify !== 'm3u8') {
+      download(item, index)
+    }
+  })
+
+  checkedRowKeysValue.value = []
+}
+
+const batchCancel = async () => {
+  if (checkedRowKeysValue.value.length <= 0) {
+    window?.$message?.error(t("index.use_data"))
+    return
+  }
+  loading.value = true
+  const cancelTasks: Promise<any>[] = []
+  data.value.forEach((item, index) => {
+    if (!checkedRowKeysValue.value.includes(item.Id)) {
+      return
+    }
+
+    if (item.Status === "pending") {
+      const queueIndex = downloadQueue.value.findIndex(qItem => qItem.Id === item.Id)
+      if (queueIndex !== -1) {
+        downloadQueue.value.splice(queueIndex, 1)
+      }
+      item.Status = 'ready'
+      item.SavePath = ''
+      return
+    }
+
+    if (item.Status === "running") {
+      if (activeDownloads > 0) {
+        activeDownloads--
+      }
+      cancelTasks.push(appApi.cancel({id: item.Id}).then(() => {
+        item.Status = 'ready'
+        item.SavePath = ''
+        checkQueue()
+      }))
+    }
+  })
+  await Promise.allSettled(cancelTasks)
+  loading.value = false
+  checkedRowKeysValue.value = []
+  cacheData()
+}
+
+const batchExport = (type?: string) => {
+  if (checkedRowKeysValue.value.length <= 0) {
+    window?.$message?.error(t("index.use_data"))
+    return
+  }
+
+  if (!store.globalConfig.SaveDirectory) {
+    window?.$message?.error(t("index.save_path_empty"))
+    return
+  }
+
   loadingText.value = t("common.loading")
   loading.value = true
-  let jsonData = []
-  for (let i = 0; i < data.value.length; i++) {
-    jsonData.push(encodeURIComponent(JSON.stringify(data.value[i])))
+
+  let jsonData = data.value.filter(item => checkedRowKeysValue.value.includes(item.Id))
+
+  if (type === "url") {
+    jsonData = jsonData.map(item => item.Url)
+  } else {
+    jsonData = jsonData.map(item => encodeURIComponent(JSON.stringify(item)))
   }
-  appApi.batchImport({content: jsonData.join("\n")}).then((res: appType.Res) => {
+
+  appApi.batchExport({content: jsonData.join("\n")}).then((res: appType.Res) => {
     loading.value = false
     if (res.code === 0) {
       window?.$message?.error(res.message)
@@ -427,27 +784,10 @@ const batchImport = () => {
       duration: 5000
     })
   })
-
 }
 
 const uint8ArrayToBase64 = (bytes: any) => {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
-}
-
-async function checkVariable() {
-  return new Promise((resolve) => {
-    const interval = setInterval(() => {
-      if (!loading.value) {
-        clearInterval(interval)
-        resolve(true)
-      }
-    }, 600);
-  });
+  return window.btoa(Array.from(bytes, (byte: any) => String.fromCharCode(byte)).join(''))
 }
 
 const download = (row: appType.MediaInfo, index: number) => {
@@ -455,26 +795,48 @@ const download = (row: appType.MediaInfo, index: number) => {
     window?.$message?.error(t("index.save_path_empty"))
     return
   }
-  loadingText.value = "ready"
-  loading.value = true
-  downIndex = index
-  if (row.DecodeKey) {
-    appApi.download({
-      ...row,
-      decodeStr: uint8ArrayToBase64(getDecryptionArray(row.DecodeKey))
-    }).then((res: appType.Res) => {
-      if (res.code === 0) {
-        loading.value = false
-        window?.$message?.error(res.message)
+
+  if (data.value.some(item => item.Id === row.Id && item.Status === "running")) {
+    return
+  }
+
+  if (downloadQueue.value.some(item => item.Id === row.Id || item.Url === row.Url)) {
+    return
+  }
+
+  if (activeDownloads >= maxConcurrentDownloads.value) {
+    row.Status = "pending"
+    downloadQueue.value.push(row)
+    window?.$message?.info(t("index.download_queued", {count: downloadQueue.value.length}))
+    return
+  }
+
+  startDownload(row, index)
+}
+
+const startDownload = (row: appType.MediaInfo, index: number) => {
+  activeDownloads++
+
+  const decodeStr = row.DecodeKey
+      ? uint8ArrayToBase64(getDecryptionArray(row.DecodeKey))
+      : ""
+
+  appApi.download({...row, decodeStr}).then((res: appType.Res) => {
+    if (res.code === 0) {
+      window?.$message?.error(res.message)
+    }
+  })
+}
+
+const checkQueue = () => {
+  if (downloadQueue.value.length > 0 && activeDownloads < maxConcurrentDownloads.value) {
+    const nextItem = downloadQueue.value.shift()
+    if (nextItem) {
+      const index = data.value.findIndex(item => item.Id === nextItem.Id)
+      if (index !== -1) {
+        startDownload(nextItem, index)
       }
-    })
-  } else {
-    appApi.download({...row, decodeStr: ""}).then((res: appType.Res) => {
-      if (res.code === 0) {
-        loading.value = false
-        window?.$message?.error(res.message)
-      }
-    })
+    }
   }
 }
 
@@ -497,10 +859,30 @@ const close = () => {
   store.unsetProxy()
 }
 
-const clear = () => {
-  data.value = []
-  localStorage.setItem("resources-data", "")
-  appApi.clear()
+const clear = async () => {
+  const newData = [] as any[]
+  const signs: string[] = []
+  if (checkedRowKeysValue.value.length > 0) {
+    data.value.forEach((item, index) => {
+      if (checkedRowKeysValue.value.includes(item.Id) && item.Status !== "pending" && item.Status !== "running") {
+        signs.push(item.UrlSign)
+      } else {
+        newData.push(item)
+      }
+    })
+    checkedRowKeysValue.value = []
+  } else {
+    data.value.forEach((item, index) => {
+      if (item.Status === "pending" || item.Status === "running") {
+        newData.push(item)
+      } else {
+        signs.push(item.UrlSign)
+      }
+    })
+  }
+  await appApi.delete({sign: signs})
+  data.value = newData
+  cacheData()
 }
 
 const decodeWxFile = (row: appType.MediaInfo, index: number) => {
@@ -528,7 +910,7 @@ const decodeWxFile = (row: appType.MediaInfo, index: number) => {
         }
         data.value[index].SavePath = res.data.save_path
         data.value[index].Status = "done"
-        localStorage.setItem("resources-data", JSON.stringify(data.value))
+        cacheData()
         window?.$message?.success(t("index.video_decode_success"))
       })
     }
@@ -540,6 +922,7 @@ const handleImport = (content: string) => {
     window?.$message?.error(t("view.import_empty"))
     return
   }
+  let newItems = [] as any[]
   content.split("\n").forEach((line, index) => {
     try {
       let res = JSON.parse(decodeURIComponent(line))
@@ -547,13 +930,16 @@ const handleImport = (content: string) => {
         res.Id = res.Id + Math.floor(Math.random() * 100000)
         res.SavePath = ""
         res.Status = "ready"
-        data.value.unshift(res)
+        newItems.push(res)
       }
     } catch (e) {
       console.log(e)
     }
-  });
-  localStorage.setItem("resources-data", JSON.stringify(data.value))
+  })
+  if (newItems.length > 0) {
+    data.value = [...newItems, ...data.value]
+    cacheData()
+  }
   showImport.value = false
 }
 

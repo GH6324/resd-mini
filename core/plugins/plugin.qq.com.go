@@ -14,6 +14,9 @@ import (
 	"strings"
 )
 
+var qqMediaRegex = regexp.MustCompile(`get\s*media\(\)\{`)
+var qqCommentRegex = regexp.MustCompile(`async\s*finderGetCommentDetail\((\w+)\)\s*\{return(.*?)\s*}\s*async`)
+
 type QqPlugin struct {
 	bridge *shared.Bridge
 }
@@ -50,6 +53,9 @@ func (p *QqPlugin) OnResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.
 
 	classify, _ := p.bridge.TypeSuffix(resp.Header.Get("Content-Type"))
 	if classify == "video" && strings.HasSuffix(host, "finder.video.qq.com") {
+		if strings.Contains(resp.Request.Header.Get("Origin"), "mp.weixin.qq.com") {
+			return nil
+		}
 		return resp
 	}
 
@@ -72,7 +78,7 @@ func (p *QqPlugin) OnResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.
 				return respTemp
 			}
 			bodyStr := string(body)
-			newBody := regexp.MustCompile(`get\s*media\(\)\{`).
+			newBody := qqMediaRegex.
 				ReplaceAllString(bodyStr, `
 							get media(){
 								if(this.objectDesc){
@@ -85,7 +91,7 @@ func (p *QqPlugin) OnResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.
 			
 			`)
 
-			newBody = regexp.MustCompile(`async\s*finderGetCommentDetail\((\w+)\)\s*\{return(.*?)\s*}\s*async`).
+			newBody = qqCommentRegex.
 				ReplaceAllString(newBody, `
 							async finderGetCommentDetail($1) {
 								var res = await$2;
@@ -116,13 +122,6 @@ func (p *QqPlugin) OnResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.
 func (p *QqPlugin) handleWechatRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return r, p.buildEmptyResponse(r)
-	}
-
-	isAll, _ := p.bridge.GetResType("all")
-	isClassify, _ := p.bridge.GetResType("video")
-
-	if !isAll && !isClassify {
 		return r, p.buildEmptyResponse(r)
 	}
 
@@ -167,7 +166,7 @@ func (p *QqPlugin) handleMedia(body []byte) {
 		Url:         rawUrl,
 		UrlSign:     urlSign,
 		CoverUrl:    "",
-		Size:        "0",
+		Size:        0,
 		Domain:      shared.GetTopLevelDomain(rawUrl),
 		Classify:    "video",
 		Suffix:      ".mp4",
@@ -185,16 +184,27 @@ func (p *QqPlugin) handleMedia(body []byte) {
 		res.ContentType = "image/png"
 	}
 
+	isAll, _ := p.bridge.GetResType("all")
+	isImage, _ := p.bridge.GetResType("image")
+	if res.Classify == "image" && !isImage && !isAll {
+		return
+	}
+
+	isVideo, _ := p.bridge.GetResType("video")
+	if res.Classify == "video" && !isVideo && !isAll {
+		return
+	}
+
 	if urlToken, ok := firstMedia["urlToken"].(string); ok {
 		res.Url += urlToken
 	}
 
 	switch size := firstMedia["fileSize"].(type) {
 	case float64:
-		res.Size = shared.FormatSize(size)
+		res.Size = size
 	case string:
 		if value, err := strconv.ParseFloat(size, 64); err == nil {
-			res.Size = shared.FormatSize(value)
+			res.Size = value
 		}
 	}
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"github.com/elazarl/goproxy"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,29 +11,14 @@ import (
 	"resd-mini/core/shared"
 	"strings"
 	"time"
+
+	"github.com/elazarl/goproxy"
 )
 
 type Proxy struct {
 	ctx   context.Context
 	Proxy *goproxy.ProxyHttpServer
 	Is    bool
-}
-
-type MediaInfo struct {
-	Id          string
-	Url         string
-	UrlSign     string
-	CoverUrl    string
-	Size        string
-	Domain      string
-	Classify    string
-	Suffix      string
-	SavePath    string
-	Status      string
-	DecodeKey   string
-	Description string
-	ContentType string
-	OtherData   map[string]string
 }
 
 var pluginRegistry = make(map[string]shared.Plugin)
@@ -95,9 +79,15 @@ func (p *Proxy) Startup() {
 	p.Proxy = goproxy.NewProxyHttpServer()
 	//p.Proxy.KeepDestinationHeaders = true
 	//p.Proxy.Verbose = false
-	//p.Proxy.Tr = transport
 	p.setTransport()
-	p.Proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
+	//p.Proxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
+	p.Proxy.OnRequest().HandleConnectFunc(func(host string, ctx *goproxy.ProxyCtx) (*goproxy.ConnectAction, string) {
+		if ruleOnce.shouldMitm(host) {
+			return goproxy.MitmConnect, host
+		}
+		return goproxy.OkConnect, host
+	})
+
 	p.Proxy.OnRequest().DoFunc(p.httpRequestEvent)
 	p.Proxy.OnResponse().DoFunc(p.httpResponseEvent)
 }

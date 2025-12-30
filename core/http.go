@@ -12,10 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"resd-mini/core/shared"
-	sysRuntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -82,8 +80,9 @@ func (h *HttpServer) run() {
 	mux.HandleFunc("/api/clear", h.clear)
 	mux.HandleFunc("/api/delete", h.delete)
 	mux.HandleFunc("/api/download", h.download)
+	mux.HandleFunc("/api/cancel", h.cancel)
 	mux.HandleFunc("/api/wx-file-decode", h.wxFileDecode)
-	mux.HandleFunc("/api/batch-import", h.batchImport)
+	mux.HandleFunc("/api/batch-export", h.batchExport)
 	mux.HandleFunc("/api/cert", h.downCert)
 
 	// Static assets endpoint
@@ -195,18 +194,20 @@ func (h *HttpServer) preview(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.WriteHeader(resp.StatusCode)
-
-	if contentRange := resp.Header.Get("Content-Range"); contentRange != "" {
-		w.Header().Set("Content-Range", contentRange)
+	for k, v := range resp.Header {
+		if strings.ToLower(k) == "access-control-allow-origin" {
+			continue
+		}
+		for _, vv := range v {
+			w.Header().Add(k, vv)
+		}
 	}
+	w.WriteHeader(resp.StatusCode)
 
 	_, err = io.Copy(w, resp.Body)
 	if err != nil {
 		http.Error(w, "Failed to serve the resource", http.StatusInternalServerError)
 	}
-	return
 }
 
 func (h *HttpServer) handleMessages() {
@@ -318,36 +319,7 @@ func (h *HttpServer) openFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath := data.FilePath
-	var cmd *exec.Cmd
-
-	switch sysRuntime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", "-R", filePath)
-	case "windows":
-		cmd = exec.Command("explorer", "/select,", filePath)
-	case "linux":
-		cmd = exec.Command("nautilus", filePath)
-		if err := cmd.Start(); err != nil {
-			cmd = exec.Command("thunar", filePath)
-			if err := cmd.Start(); err != nil {
-				cmd = exec.Command("dolphin", filePath)
-				if err := cmd.Start(); err != nil {
-					cmd = exec.Command("pcmanfm", filePath)
-					if err := cmd.Start(); err != nil {
-						globalLogger.Err(err)
-						h.error(w, err.Error())
-						return
-					}
-				}
-			}
-		}
-	default:
-		h.error(w, "unsupported platform")
-		return
-	}
-
-	err = cmd.Start()
+	err = shared.OpenFolder(data.FilePath)
 	if err != nil {
 		globalLogger.Err(err)
 		h.error(w, err.Error())
@@ -464,18 +436,20 @@ func (h *HttpServer) clear(w http.ResponseWriter, r *http.Request) {
 
 func (h *HttpServer) delete(w http.ResponseWriter, r *http.Request) {
 	var data struct {
-		Sign string `json:"sign"`
+		Sign []string `json:"sign"`
 	}
 	err := json.NewDecoder(r.Body).Decode(&data)
-	if err == nil && data.Sign != "" {
-		resourceOnce.delete(data.Sign)
+	if err == nil && len(data.Sign) > 0 {
+		for _, v := range data.Sign {
+			resourceOnce.delete(v)
+		}
 	}
 	h.success(w)
 }
 
 func (h *HttpServer) download(w http.ResponseWriter, r *http.Request) {
 	var data struct {
-		MediaInfo
+		shared.MediaInfo
 		DecodeStr string `json:"decodeStr"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
@@ -486,9 +460,27 @@ func (h *HttpServer) download(w http.ResponseWriter, r *http.Request) {
 	h.success(w)
 }
 
+func (h *HttpServer) cancel(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		shared.MediaInfo
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		h.error(w, err.Error())
+		return
+	}
+
+	err := resourceOnce.cancel(data.Id)
+	if err != nil {
+		h.error(w, err.Error())
+		return
+	}
+	h.success(w)
+}
+
 func (h *HttpServer) wxFileDecode(w http.ResponseWriter, r *http.Request) {
 	var data struct {
-		MediaInfo
+		shared.MediaInfo
 		Filename  string `json:"filename"`
 		DecodeStr string `json:"decodeStr"`
 	}
@@ -506,7 +498,7 @@ func (h *HttpServer) wxFileDecode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *HttpServer) batchImport(w http.ResponseWriter, r *http.Request) {
+func (h *HttpServer) batchExport(w http.ResponseWriter, r *http.Request) {
 	var data struct {
 		Content string `json:"content"`
 	}

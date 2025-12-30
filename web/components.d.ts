@@ -7,11 +7,15 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    Action: typeof import('./src/components/Action.vue')['default']
+    ActionDesc: typeof import('./src/components/ActionDesc.vue')['default']
     Footer: typeof import('./src/components/Footer.vue')['default']
     ImportJson: typeof import('./src/components/ImportJson.vue')['default']
     Index: typeof import('./src/components/layout/Index.vue')['default']
     NaiveProvider: typeof import('./src/components/NaiveProvider.vue')['default']
     NButton: typeof import('naive-ui')['NButton']
+    NButtonGroup: typeof import('naive-ui')['NButtonGroup']
+    NCheckbox: typeof import('naive-ui')['NCheckbox']
     NConfigProvider: typeof import('naive-ui')['NConfigProvider']
     NDataTable: typeof import('naive-ui')['NDataTable']
     NDialogProvider: typeof import('naive-ui')['NDialogProvider']
@@ -31,10 +35,13 @@ declare module 'vue' {
     NModal: typeof import('naive-ui')['NModal']
     NModalProvider: typeof import('naive-ui')['NModalProvider']
     NNotificationProvider: typeof import('naive-ui')['NNotificationProvider']
+    NPopconfirm: typeof import('naive-ui')['NPopconfirm']
+    NPopover: typeof import('naive-ui')['NPopover']
     NScrollbar: typeof import('naive-ui')['NScrollbar']
     NSelect: typeof import('naive-ui')['NSelect']
-    NSpace: typeof import('naive-ui')['NSpace']
     NSwitch: typeof import('naive-ui')['NSwitch']
+    NTabPane: typeof import('naive-ui')['NTabPane']
+    NTabs: typeof import('naive-ui')['NTabs']
     NTooltip: typeof import('naive-ui')['NTooltip']
     Password: typeof import('./src/components/Password.vue')['default']
     Preview: typeof import('./src/components/Preview.vue')['default']
@@ -42,6 +49,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ShowLoading: typeof import('./src/components/ShowLoading.vue')['default']
+    ShowOrEdit: typeof import('./src/components/ShowOrEdit.vue')['default']
     Sider: typeof import('./src/components/layout/Sider.vue')['default']
   }
 }

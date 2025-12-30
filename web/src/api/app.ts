@@ -92,6 +92,13 @@ export default {
             data: data
         })
     },
+    cancel(data: object) {
+        return request({
+            url: 'api/cancel',
+            method: 'post',
+            data: data
+        })
+    },
     download(data: object) {
         return request({
             url: 'api/download',
@@ -106,9 +113,9 @@ export default {
             data: data
         })
     },
-    batchImport(data: object) {
+    batchExport(data: object) {
         return request({
-            url: 'api/batch-import',
+            url: 'api/batch-export',
             method: 'post',
             data: data
         })

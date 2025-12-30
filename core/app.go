@@ -38,6 +38,7 @@ var (
 	systemOnce     *SystemSetup
 	proxyOnce      *Proxy
 	httpServerOnce *HttpServer
+	ruleOnce       *RuleSet
 )
 
 func GetApp(assets embed.FS) *App {
@@ -45,7 +46,7 @@ func GetApp(assets embed.FS) *App {
 		appOnce = &App{
 			assets:      assets,
 			AppName:     "resd-mini",
-			Version:     "1.0.4",
+			Version:     "3.1.3",
 			Description: "resd-mini是一款集网络资源嗅探 + 高速下载功能于一体的软件，高颜值、高性能和多样化，提供个人用户下载自己上传到各大平台的网络资源功能！",
 			Copyright:   "Copyright © 2023~" + strconv.Itoa(time.Now().Year()),
 			Platform:    sysRuntime.GOOS,
@@ -115,6 +116,7 @@ ILKEQKmPPzKs7kp/7Nz+2cT3
 		initResource()
 		initHttpServer()
 		initSystem()
+		initRule()
 	}
 	return appOnce
 }

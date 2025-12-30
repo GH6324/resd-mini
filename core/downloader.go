@@ -1,13 +1,14 @@
 package core
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"resd-mini/core/shared"
 	"strings"
 	"sync"
 	"time"
@@ -44,20 +45,27 @@ type FileDownloader struct {
 	totalTasks       int
 	TotalSize        int64
 	IsMultiPart      bool
+	RetryOnError     bool
 	Headers          map[string]string
 	DownloadTaskList []*DownloadTask
 	progressCallback ProgressCallback
+	ctx              context.Context
+	cancelFunc       context.CancelFunc
 }
 
 func NewFileDownloader(url, filename string, totalTasks int, headers map[string]string) *FileDownloader {
+	ctx, cancelFunc := context.WithCancel(context.Background())
 	return &FileDownloader{
 		Url:              url,
 		FileName:         filename,
 		totalTasks:       totalTasks,
 		IsMultiPart:      false,
+		RetryOnError:     false,
 		TotalSize:        0,
 		Headers:          headers,
 		DownloadTaskList: make([]*DownloadTask, 0),
+		ctx:              ctx,
+		cancelFunc:       cancelFunc,
 	}
 }
 
@@ -71,12 +79,44 @@ func (fd *FileDownloader) buildClient() *http.Client {
 	}
 	return &http.Client{
 		Transport: transport,
-		Timeout:   60 * time.Second,
 	}
+}
+
+var forbiddenDownloadHeaders = map[string]struct{}{
+	"accept-encoding":   {},
+	"content-length":    {},
+	"host":              {},
+	"connection":        {},
+	"keep-alive":        {},
+	"proxy-connection":  {},
+	"transfer-encoding": {},
+
+	"sec-fetch-site":     {},
+	"sec-fetch-mode":     {},
+	"sec-fetch-dest":     {},
+	"sec-fetch-user":     {},
+	"sec-ch-ua":          {},
+	"sec-ch-ua-mobile":   {},
+	"sec-ch-ua-platform": {},
+
+	"if-none-match":     {},
+	"if-modified-since": {},
+
+	"x-forwarded-for": {},
+	"x-real-ip":       {},
 }
 
 func (fd *FileDownloader) setHeaders(request *http.Request) {
 	for key, value := range fd.Headers {
+		if globalConfig.UseHeaders == "default" {
+			lk := strings.ToLower(key)
+			if _, forbidden := forbiddenDownloadHeaders[lk]; forbidden {
+				continue
+			}
+			request.Header.Set(key, value)
+			continue
+		}
+
 		if strings.Contains(globalConfig.UseHeaders, key) {
 			request.Header.Set(key, value)
 		}
@@ -132,10 +172,9 @@ func (fd *FileDownloader) init() error {
 
 	fd.TotalSize = resp.ContentLength
 	if fd.TotalSize <= 0 {
-		return errors.New("invalid file size")
-	}
-
-	if resp.Header.Get("Accept-Ranges") == "bytes" && fd.TotalSize > MinPartSize {
+		fd.IsMultiPart = false
+		fd.TotalSize = -1
+	} else if resp.Header.Get("Accept-Ranges") == "bytes" && fd.TotalSize > MinPartSize {
 		fd.IsMultiPart = true
 	}
 
@@ -143,13 +182,18 @@ func (fd *FileDownloader) init() error {
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return fmt.Errorf("create directory failed: %w", err)
 	}
+
+	fd.FileName = shared.GetUniqueFileName(fd.FileName)
+
 	fd.File, err = os.OpenFile(fd.FileName, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("file open failed: %w", err)
 	}
-	if err := fd.File.Truncate(fd.TotalSize); err != nil {
-		fd.File.Close()
-		return fmt.Errorf("file truncate failed: %w", err)
+	if fd.TotalSize > 0 {
+		if err := fd.File.Truncate(fd.TotalSize); err != nil {
+			fd.File.Close()
+			return fmt.Errorf("file truncate failed: %w", err)
+		}
 	}
 	return nil
 }
@@ -182,10 +226,14 @@ func (fd *FileDownloader) createDownloadTasks() {
 		}
 	} else {
 		fd.totalTasks = 1
+		rangeEnd := int64(-1)
+		if fd.TotalSize > 0 {
+			rangeEnd = fd.TotalSize - 1
+		}
 		fd.DownloadTaskList = append(fd.DownloadTaskList, &DownloadTask{
 			taskID:     0,
 			rangeStart: 0,
-			rangeEnd:   fd.TotalSize - 1,
+			rangeEnd:   rangeEnd,
 		})
 	}
 }
@@ -233,6 +281,15 @@ func (fd *FileDownloader) startDownload() error {
 	}
 
 	if len(errArr) > 0 {
+		if !fd.RetryOnError && fd.IsMultiPart {
+			// 降级
+			fd.RetryOnError = true
+			fd.DownloadTaskList = []*DownloadTask{}
+			fd.totalTasks = 1
+			fd.IsMultiPart = false
+			fd.createDownloadTasks()
+			return fd.startDownload()
+		}
 		return fmt.Errorf("download failed with %d errors: %v", len(errArr), errArr[0])
 	}
 
@@ -253,11 +310,21 @@ func (fd *FileDownloader) startDownloadTask(wg *sync.WaitGroup, progressChan cha
 			return
 		}
 
+		if strings.Contains(err.Error(), "cancelled") {
+			errorChan <- err
+			return
+		}
+
 		task.err = err
 		globalLogger.Warn().Msgf("Task %d failed (attempt %d/%d): %v", task.taskID, retries+1, MaxRetries, err)
 
 		if retries < MaxRetries-1 {
-			time.Sleep(RetryDelay)
+			select {
+			case <-fd.ctx.Done():
+				errorChan <- fmt.Errorf("task %d cancelled during retry", task.taskID)
+				return
+			case <-time.After(RetryDelay):
+			}
 		}
 	}
 
@@ -265,7 +332,13 @@ func (fd *FileDownloader) startDownloadTask(wg *sync.WaitGroup, progressChan cha
 }
 
 func (fd *FileDownloader) doDownloadTask(progressChan chan ProgressChan, task *DownloadTask) error {
-	request, err := http.NewRequest("GET", fd.Url, nil)
+	select {
+	case <-fd.ctx.Done():
+		return fmt.Errorf("download cancelled")
+	default:
+	}
+
+	request, err := http.NewRequestWithContext(fd.ctx, "GET", fd.Url, nil)
 	if err != nil {
 		return fmt.Errorf("create request failed: %w", err)
 	}
@@ -292,33 +365,31 @@ func (fd *FileDownloader) doDownloadTask(progressChan chan ProgressChan, task *D
 
 	buf := make([]byte, 32*1024)
 	for {
+		select {
+		case <-fd.ctx.Done():
+			return fmt.Errorf("download cancelled")
+		default:
+		}
+
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			remain := task.rangeEnd - (task.rangeStart + task.downloadedSize) + 1
 			writeSize := int64(n)
-			if writeSize > remain {
-				writeSize = remain
-			}
-
-			_, writeErr := fd.File.WriteAt(buf[:writeSize], task.rangeStart+task.downloadedSize)
+			offset := task.rangeStart + task.downloadedSize
+			_, writeErr := fd.File.WriteAt(buf[:writeSize], offset)
 			if writeErr != nil {
-				return fmt.Errorf("write file failed at offset %d: %w", task.rangeStart+task.downloadedSize, writeErr)
+				return fmt.Errorf("write file failed at offset %d: %w", offset, writeErr)
 			}
 
 			task.downloadedSize += writeSize
 			progressChan <- ProgressChan{taskID: task.taskID, bytes: writeSize}
 
-			if task.rangeStart+task.downloadedSize-1 >= task.rangeEnd {
+			if fd.TotalSize > 0 && task.rangeStart+task.downloadedSize-1 >= task.rangeEnd {
 				return nil
 			}
 		}
 
 		if err != nil {
 			if err == io.EOF {
-				expectedSize := task.rangeEnd - task.rangeStart + 1
-				if task.downloadedSize < expectedSize {
-					return fmt.Errorf("incomplete download: got %d bytes, expected %d", task.downloadedSize, expectedSize)
-				}
 				return nil
 			}
 			return fmt.Errorf("read response failed: %w", err)
@@ -331,20 +402,13 @@ func (fd *FileDownloader) verifyDownload() error {
 		if !task.isCompleted {
 			return fmt.Errorf("task %d not completed", task.taskID)
 		}
+	}
 
-		expectedSize := task.rangeEnd - task.rangeStart + 1
-		if task.downloadedSize != expectedSize {
-			return fmt.Errorf("task %d size mismatch: got %d, expected %d", task.taskID, task.downloadedSize, expectedSize)
+	if fd.TotalSize > 0 {
+		_, err := fd.File.Stat()
+		if err != nil {
+			return fmt.Errorf("get file info failed: %w", err)
 		}
-	}
-
-	info, err := fd.File.Stat()
-	if err != nil {
-		return fmt.Errorf("get file info failed: %w", err)
-	}
-
-	if info.Size() != fd.TotalSize {
-		return fmt.Errorf("file size mismatch: got %d, expected %d", info.Size(), fd.TotalSize)
 	}
 
 	return nil
@@ -363,4 +427,18 @@ func (fd *FileDownloader) Start() error {
 	}
 
 	return err
+}
+
+func (fd *FileDownloader) Cancel() {
+	if fd.cancelFunc != nil {
+		fd.cancelFunc()
+	}
+
+	if fd.File != nil {
+		fd.File.Close()
+	}
+
+	if fd.FileName != "" {
+		_ = os.Remove(fd.FileName)
+	}
 }

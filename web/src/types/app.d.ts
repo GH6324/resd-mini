@@ -27,9 +27,12 @@ export namespace appType {
         AutoProxy: boolean
         WxAction: boolean
         TaskNumber: number
+        DownNumber: number
         UserAgent: string
         UseHeaders: string
+        InsertTail: boolean
         MimeMap: { [key: string]: MimeMap }
+        Rule: string
     }
 
     interface MediaInfo {
@@ -37,7 +40,7 @@ export namespace appType {
         Url: string
         UrlSign: string
         CoverUrl: string
-        Size: string
+        Size: number
         Domain: string
         Classify: string
         Suffix: string
